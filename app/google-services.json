@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "8699616918",
+    "project_id": "knowledgevault-1c93c",
+    "storage_bucket": "knowledgevault-1c93c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:8699616918:android:c5a5ce3685d7cbeb02ecb7",
+        "android_client_info": {
+          "package_name": "week11.st991695851.finalproject"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDLwk1w0Monwhy6nwDaQj5qMUJBWE1XjJ0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
