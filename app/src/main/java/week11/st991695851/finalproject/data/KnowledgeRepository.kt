@@ -36,7 +36,7 @@ class KnowledgeRepository {
 
         // 2. If no user, close the flow immediately
         if (userId == null) {
-            close()
+           trySend(emptyList())
             return@callbackFlow
         }
 
@@ -49,7 +49,11 @@ class KnowledgeRepository {
                     return@addSnapshotListener
                 }
 
-                val notes = snapshot?.documents?.mapNotNull { it.data } ?: emptyList()
+                val notes = snapshot?.documents?.mapNotNull { doc ->
+                    val data = doc.data?.toMutableMap()
+                    data?.set("id", doc.id)
+                    data
+                } ?: emptyList()
                 trySend(notes)
             }
 

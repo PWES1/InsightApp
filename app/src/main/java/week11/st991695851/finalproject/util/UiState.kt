@@ -9,5 +9,5 @@ sealed class UiState {
 sealed class AuthenticatedScreen {
     object Scanner : AuthenticatedScreen()
     object Library : AuthenticatedScreen()
-   // data class ViewNote(val noteId: String) : AuthenticatedScreen() // Reading one specific scan
+    data class ViewNote(val noteId: String) : AuthenticatedScreen() // Reading one specific scan
 }

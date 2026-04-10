@@ -1,6 +1,5 @@
 package week11.st991695851.finalproject
 
-import android.R.id.message
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -67,10 +65,24 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import coil.compose.AsyncImage
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.firestore
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.style.TextAlign
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -110,6 +122,8 @@ class MainViewModel : ViewModel() {
     private val _selectedImageUri = MutableStateFlow<Uri?>(null)
     val selectedImageUri: StateFlow<Uri?> = _selectedImageUri
 
+    private val db = Firebase.firestore
+
     fun onImageSelected(uri: Uri?) {
         _selectedImageUri.value = uri
     }
@@ -124,8 +138,7 @@ class MainViewModel : ViewModel() {
                 .addOnSuccessListener { visionText ->
                     _isLoading.value = false
 
-                    val lines = visionText.text.lines().filter{it.isNotBlank()}
-                    val title = lines.firstOrNull() ?: "Scanned Document"
+                    val title = ""
                     val content = visionText.text
                     onResult(title, content)
                 }
@@ -159,20 +172,44 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    fun saveScan(title: String, content: String, category: String) {
+    fun deleteNote(noteId: String){
+        val userId = auth.currentUser?.uid ?: return
+        db.collection("knowledge_vault").document(noteId)
+            .delete()
+            .addOnSuccessListener {
+                _errorMessage.value = "Note deleted successfully"
+            }
+            .addOnFailureListener {
+                _errorMessage.value = "Failed to delete note: ${it.message}"
+            }
+    }
+
+    fun viewNoteDetail(noteId: String){
+        _currentScreen.value = AuthenticatedScreen.ViewNote(noteId)
+    }
+
+
+    fun saveScan(title: String, content: String, category: String, onComplete: () -> Unit) {
         if (title.isBlank() || content.isBlank()) return
 
         viewModelScope.launch {
             _isLoading.value = true
             try {
                 repository.saveNote(title, content, category)
-            } finally {
+                onComplete()
+                _errorMessage.value = "Saved successfully"
+            } catch(e: Exception){
+                _errorMessage.value = "Failed to save note"
+            }
+            finally {
                 _isLoading.value = false
+              //  navigateTo(AuthenticatedScreen.Library)
             }
         }
     }
 
     private fun checkAuthStatus() {
+        val currentUser = auth.currentUser
         if (auth.currentUser != null) {
             _uiState.value = UiState.Authenticated
             observeNotes()
@@ -196,6 +233,7 @@ class MainViewModel : ViewModel() {
                 _isLoading.value = false
                 _uiState.value = UiState.Authenticated
                 _errorMessage.value = null
+                observeNotes()
             }
             .addOnFailureListener { e ->
                 _isLoading.value = false
@@ -294,9 +332,10 @@ fun InsightApp(vm: MainViewModel = viewModel()) {
                 Box(modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)) {
-                    when (currentScreen) {
+                    when (val screen = currentScreen) {
                         is AuthenticatedScreen.Scanner -> MainAppContent(vm)
                         is AuthenticatedScreen.Library -> LibraryScreen(vm)
+                        is AuthenticatedScreen.ViewNote -> NoteDetailScreen(screen.noteId, vm)
                     }
                 }
             }
@@ -411,9 +450,25 @@ fun MainAppContent(vm: MainViewModel) {
             .padding(16.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Text("Document Scanner", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("Upload and scan documents", fontSize = 14.sp, color = Color.Gray)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
 
+        ){
+            Text("Document Scanner", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+          //  Text("Upload and scan documents", fontSize = 14.sp, color = Color.Gray)
+
+            IconButton(onClick = { vm.logout() }) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                    contentDescription = "Logout",
+                    tint = Color.Gray
+
+                )
+            }
+
+        }
         Spacer(modifier = Modifier.height(24.dp))
 
         Box(
@@ -428,7 +483,9 @@ fun MainAppContent(vm: MainViewModel) {
                 AsyncImage(
                     model = selectedImageUri,
                     contentDescription = "Selected Image",
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(12.dp)),
                     contentScale = ContentScale.Crop
                 )
             }else {
@@ -454,8 +511,8 @@ fun MainAppContent(vm: MainViewModel) {
                 Button(
                     onClick = {
                         selectedImageUri?.let { uri ->
-                            vm.scanImage(context, uri) { title, text ->
-                                docTitle = title
+                            vm.scanImage(context, uri) { _, text ->
+
                                 docText = text
                             }
                         }
@@ -478,11 +535,11 @@ fun MainAppContent(vm: MainViewModel) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-    /*    Text("Document Title", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+       Text("Document Title", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
         InsightTextField(
             value = docTitle,
             onValueChange = { docTitle = it },
-            label = "Auto-fills after scanning"
+            label = "Enter document title"
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -501,17 +558,20 @@ fun MainAppContent(vm: MainViewModel) {
             value = docText,
             onValueChange = { docText = it },
             label = "Auto-fills after scanning"
-        )*/
+        )
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(32.dp))
+
+        
 
         Button(
             onClick = {
-                vm.saveScan(docTitle, docText, category)
-                docTitle = ""
-                docText = ""
-                category = ""
-                vm.onImageSelected(null)
+                vm.saveScan(docTitle, docText, category) {
+                    docTitle = ""
+                    docText = ""
+                    category = ""
+                    vm.onImageSelected(null)
+                }
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -522,12 +582,8 @@ fun MainAppContent(vm: MainViewModel) {
             Text("Save to Vault", color = Color.White, fontWeight = FontWeight.Bold)
         }
 
-        Spacer(modifier = Modifier.height(80.dp))
+        Spacer(modifier = Modifier.height(120.dp))
 
-    /*    InsightSecondaryButton(
-            text = "Logout",
-            onClick = { vm.logout() }
-        )*/
     }
 
 
@@ -602,40 +658,262 @@ fun RegisterScreen(vm: MainViewModel, onBackToLogin: () -> Unit) {
 }
 
 @Composable
-fun LibraryScreen(vm: MainViewModel) {
+fun NoteDetailScreen(noteId: String, vm: MainViewModel) {
     val notes by vm.notes.collectAsState()
+    val note = notes.find {it["id"] == noteId }
 
-    Column(modifier = Modifier
-        .fillMaxSize()
-        .padding(16.dp)) {
-        Text("Library", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Text("Your saved knowledge", fontSize = 14.sp, color = Color.Gray)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFAFAFA))
+            .verticalScroll(rememberScrollState())
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color.White,
+            shadowElevation = 1.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxWidth()
+            ) {
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(notes) { note ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    elevation = CardDefaults.cardElevation(2.dp)
+                TextButton(
+                    onClick = { vm.navigateTo(AuthenticatedScreen.Library) },
+                    contentPadding = PaddingValues(0.dp)
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(note["title"]?.toString() ?: "Untitled", fontWeight = FontWeight.Bold)
-                        Text(
-                            note["category"]?.toString() ?: "General",
-                            color = Color.Blue,
-                            fontSize = 12.sp
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.Black,
+                            modifier = Modifier.size(18.dp)
                         )
-                        Text(note["content"]?.toString() ?: "", maxLines = 2, fontSize = 14.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
 
+                        Text(
+                            text = "Back to Library",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                if (note == null) {
+                    Text("Error (ID: $noteId)", color = Color.Red)
+                } else {
+
+                    Text(
+                        text = note["title"]?.toString() ?: "Untitled",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 28.sp,
+                        color = Color.Black
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            color = Color(0xFFE8EAF6),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+
+
+                            Text(
+                                text = note["category"]?.toString() ?: "General",
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF3F51B5)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Icon(
+                            imageVector = Icons.Default.DateRange,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Thursday, March 19, 2026",
+                            fontSize = 13.sp,
+                            color = Color.Gray
+                        )
                     }
                 }
             }
         }
+
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+        if (note != null){
+        Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(24.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("📄", fontSize = 18.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Extracted Text",
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black,
+                                fontSize = 18.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = note["content"]?.toString() ?: "No content found.",
+                            fontSize = 15.sp,
+                            lineHeight = 24.sp,
+                            color = Color(0xFF424242)
+
+                        )
+                    }
+                }
+            Spacer(modifier = Modifier.height(40.dp))
+            }
+        }}
+
+
+
+
+@Composable
+fun LibraryScreen(vm: MainViewModel) {
+    val notes by vm.notes.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text("Library", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+        Text("${notes.size} documents saved", fontSize = 14.sp, color = Color.Gray)
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(notes) { note ->
+
+                val noteId = note["id"]?.toString() ?: ""
+                LibraryCard(
+                    note = note,
+                    onClick = { vm.viewNoteDetail(noteId) },
+                    onDelete = { vm.deleteNote(noteId) }
+                )
+            }
+        }
     }
 }
+
+@Composable
+fun LibraryCard(note: Map<String, Any>, onClick: () -> Unit, onDelete: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFE3F2FD)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("📄", fontSize = 20.sp)
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        note["title"]?.toString() ?: "Untitled",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Black,
+                        maxLines = 1
+
+                    )
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = Color.LightGray,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        color = Color(0xFFF5F5F5),
+                        shape = RoundedCornerShape(4.dp),
+                    ) {
+                        Text(
+                            text = note["category"]?.toString() ?: "General",
+                            color = Color.DarkGray,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            fontWeight = FontWeight.Medium
+                        )
+
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = note["content"]?.toString() ?: "",
+                    fontSize = 13.sp,
+                    color = Color.Gray,
+                    maxLines = 2,
+                    lineHeight = 18.sp
+                )
+            }
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.align(Alignment.CenterVertically)
+            ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFFFCDD2))
+            }
+        }
+    }
+}
+
+
+
+
+
+
+
+
 
 
 
